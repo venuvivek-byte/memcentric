@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MemCentric-Sim | Memory-Centric Computing Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Header -->
+    <header class="header">
+      <div class="logo-area">
+        <div class="logo-icon">⚡</div>
+        <div>
+          <h1>MemCentric-Sim</h1>
+          <p class="subtitle">Cycle-Accurate Simulator for Near-Memory Computing (NMC/PIM) & Dynamic Computation Placement</p>
+        </div>
+      </div>
+      <div class="header-tags">
+        <span class="badge badge-cxl">CXL 3.0 Interconnect</span>
+        <span class="badge badge-hbm">Multi-Bank DRAM / HBM</span>
+        <span class="badge badge-pim">In-Logic PIM Cluster</span>
+        <span class="badge badge-ai">Intelligent Placement Engine</span>
+      </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="dashboard-grid">
+      <!-- Left Sidebar: Configuration & Workload Control -->
+      <aside class="sidebar-card">
+        <h2>Architecture Controls</h2>
+
+        <div class="control-group">
+          <label for="workload-select">Workload Benchmark</label>
+          <select id="workload-select">
+            <option value="Heterogeneous Pipeline" selected>Heterogeneous Pipeline (Multi-Stage)</option>
+            <option value="High-Reuse (GEMM)">High-Reuse (Dense GEMM Matrix Multiply)</option>
+            <option value="Streaming (Vector Sum)">Streaming (Vector Addition & Reduction)</option>
+            <option value="Streaming (DB Scan)">Streaming (Database Predicate Filter Scan)</option>
+            <option value="Random Access (Graph BFS)">Random Access (Graph BFS Frontier Traversal)</option>
+            <option value="Random Access (Embedding)">Random Access (Sparse DLRM Embedding Gather)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label for="policy-select">Placement Policy</label>
+          <select id="policy-select">
+            <option value="DYNAMIC_ANALYTICAL" selected>DYNAMIC_ANALYTICAL (MemCentric Heuristic)</option>
+            <option value="ROOFLINE_OI">ROOFLINE_OI (Operational Intensity Cutoff)</option>
+            <option value="ADAPTIVE_CONGESTION">ADAPTIVE_CONGESTION (Interconnect Queue Aware)</option>
+            <option value="STATIC_PIM">STATIC_PIM (Always Near-Memory)</option>
+            <option value="STATIC_HOST">STATIC_HOST (Baseline Conventional CPU)</option>
+          </select>
+        </div>
+
+        <div class="divider"></div>
+
+        <h3>Microarchitectural Parameters</h3>
+        <div class="param-row">
+          <label>Host Frequency</label>
+          <span class="param-val" id="val-host-freq">3.2 GHz</span>
+        </div>
+        <div class="param-row">
+          <label>Host Cores & SIMD</label>
+          <span class="param-val">4 Cores (8-way AVX)</span>
+        </div>
+        <div class="param-row">
+          <label>CXL Bus Bandwidth</label>
+          <span class="param-val" id="val-bus-bw">64 GB/s</span>
+        </div>
+        <div class="param-row">
+          <label>PIM Operating Freq</label>
+          <span class="param-val" id="val-pim-freq">1.0 GHz</span>
+        </div>
+        <div class="param-row">
+          <label>PIM PEs (Bank Co-located)</label>
+          <span class="param-val">8 PEs (2-way SIMD)</span>
+        </div>
+        <div class="param-row">
+          <label>DRAM Hierarchy</label>
+          <span class="param-val">4 Channels, 32 Banks</span>
+        </div>
+
+        <div class="workload-info-box" id="workload-desc">
+          <!-- Populated dynamically -->
+        </div>
+
+        <button id="run-sim-btn" class="primary-btn">
+          <span>⚡ Re-evaluate Architecture</span>
+        </button>
+      </aside>
+
+      <!-- Center & Right: Dashboard Metrics and Visualizations -->
+      <main class="main-content">
+        <!-- KPI Metrics Banner -->
+        <div class="metrics-row">
+          <div class="metric-card speedup-card">
+            <div class="metric-label">Execution Speedup</div>
+            <div class="metric-value" id="kpi-speedup">10.23x</div>
+            <div class="metric-sub" id="kpi-speedup-sub">vs. Conventional Host Baseline</div>
+          </div>
+
+          <div class="metric-card data-saved-card">
+            <div class="metric-label">Bus Traffic Reduced</div>
+            <div class="metric-value" id="kpi-data-saved">94.8%</div>
+            <div class="metric-sub" id="kpi-data-saved-sub">CXL Interconnect bytes spared</div>
+          </div>
+
+          <div class="metric-card edp-card">
+            <div class="metric-label">EDP Improvement</div>
+            <div class="metric-value" id="kpi-edp">93.3%</div>
+            <div class="metric-sub">Energy-Delay Product efficiency</div>
+          </div>
+
+          <div class="metric-card decision-card">
+            <div class="metric-label">Runtime Placement</div>
+            <div class="metric-value" id="kpi-placement">H: 1 | P: 3</div>
+            <div class="metric-sub" id="kpi-placement-sub">Dynamically partitioned</div>
+          </div>
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="charts-row">
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Architectural Roofline Model</h3>
+              <span class="badge badge-subtle">Attainable Performance vs OI</span>
+            </div>
+            <div class="chart-body">
+              <canvas id="rooflineChart"></canvas>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Policy Performance Comparison</h3>
+              <span class="badge badge-subtle">Speedup (x)</span>
+            </div>
+            <div class="chart-body">
+              <canvas id="policyChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Execution Trace & Dynamic Placement Table -->
+        <div class="trace-card">
+          <div class="trace-header">
+            <h3>Dynamic Task Placement & Micro-Profiling Telemetry</h3>
+            <span class="badge badge-active" id="active-policy-badge">Active Policy: DYNAMIC_ANALYTICAL</span>
+          </div>
+          <div class="table-responsive">
+            <table class="trace-table" id="trace-table">
+              <thead>
+                <tr>
+                  <th>Task Name</th>
+                  <th>Dataset Type</th>
+                  <th>Placement Target</th>
+                  <th>Execution Cycles</th>
+                  <th>Bus Data Moved</th>
+                  <th>Overhead</th>
+                  <th>Runtime Decision Reason</th>
+                </tr>
+              </thead>
+              <tbody id="trace-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- System Architecture Blueprint Visualizer -->
+        <div class="blueprint-card">
+          <div class="blueprint-header">
+            <h3>Subsystem Interaction Diagram</h3>
+            <span class="badge badge-subtle">Physical Data & Control Path</span>
+          </div>
+          <div class="diagram-grid">
+            <div class="arch-box host-box" id="box-host">
+              <div class="arch-box-title">Host Subsystem (3.2 GHz)</div>
+              <div class="arch-box-desc">4 Cores • 8-wide AVX • L1/L2/L3 Caches (16MB)</div>
+              <div class="arch-stat" id="stat-host-tasks">Active Tasks: 1</div>
+            </div>
+            <div class="bus-connector" id="box-bus">
+              <div class="bus-label">CXL 3.0 / PCIe Interconnect (64 GB/s)</div>
+              <div class="bus-sublabel" id="stat-bus-moved">Data Transferred: 32.8 KB (94.8% Saved)</div>
+            </div>
+            <div class="arch-box pim-box" id="box-pim">
+              <div class="arch-box-title">Near-Memory PIM Cluster (1.0 GHz)</div>
+              <div class="arch-box-desc">8 Bank-Coupled PEs • Direct TSV Interconnect</div>
+              <div class="arch-stat" id="stat-pim-tasks">Active Tasks: 3</div>
+            </div>
+            <div class="arch-box dram-box" id="box-dram">
+              <div class="arch-box-title">Multi-Bank DRAM / HBM Subsystem</div>
+              <div class="arch-box-desc">4 Channels • 32 Banks • Bank-Level Parallelism</div>
+              <div class="arch-stat" id="stat-dram-hits">Row Hits: 94.2%</div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
