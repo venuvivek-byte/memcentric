@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-brightgreen.svg)](https://www.python.org/)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-success.svg)](https://venuvivek-byte.github.io/memcentric/)
 [![Simulation](https://img.shields.io/badge/Cycle--Accurate-Discrete--Event-orange.svg)]()
 [![Hardware](https://img.shields.io/badge/Architecture-CXL%203.0%20%7C%20PIM%20%7C%20HBM-purple.svg)]()
 
