@@ -7,6 +7,7 @@ from memcentric.hardware.memory import MemorySubsystem, MemoryTiming, MemoryEner
 from memcentric.hardware.host import HostProcessor, HostConfig
 from memcentric.hardware.pim import PIMSubsystem, PIMConfig
 from memcentric.hardware.energy_model import EnergyModel, EnergyReport
+from memcentric.hardware.dma import BackgroundDMA
 
 __all__ = [
     "CacheLevel",
@@ -20,5 +21,6 @@ __all__ = [
     "PIMSubsystem",
     "PIMConfig",
     "EnergyModel",
-    "EnergyReport"
+    "EnergyReport",
+    "BackgroundDMA"
 ]

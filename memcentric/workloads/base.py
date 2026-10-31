@@ -16,6 +16,14 @@ class KernelTask:
     memory_accesses: List[Tuple[int, bool]]  # List of (byte_address, is_write)
     output_bytes: int           # Size of final produced result
     description: str = ""
+    # Bytes another device pushes over the shared interconnect when this
+    # phase starts (e.g. a storage DMA landing a new batch). 0 = quiet bus.
+    interfering_dma_bytes: int = 0
+
+    @property
+    def vectorizable(self) -> bool:
+        """Compiler-visible hint: dense/streaming loops use host SIMD lanes."""
+        return self.category in ("HIGH_REUSE", "STREAMING")
 
     @property
     def total_memory_accesses(self) -> int:

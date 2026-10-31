@@ -31,36 +31,39 @@ def generate_all_plots(results_path: str = None, output_dir: str = None):
         data = json.load(f)
 
     workloads = list(data.keys())
-    policies = ["STATIC_HOST", "STATIC_PIM", "ROOFLINE_OI", "DYNAMIC_ANALYTICAL"]
+    policies = ["STATIC_HOST", "STATIC_PIM", "ROOFLINE_OI", "DYNAMIC_ANALYTICAL", "ORACLE"]
     policy_labels = {
         "STATIC_HOST": "Host Baseline",
         "STATIC_PIM": "PIM Only",
         "ROOFLINE_OI": "Roofline-OI",
-        "DYNAMIC_ANALYTICAL": "MemCentric (Dynamic)"
+        "DYNAMIC_ANALYTICAL": "MemCentric (Dynamic)",
+        "ORACLE": "Oracle (upper bound)"
     }
     colors = {
         "STATIC_HOST": "#4A5568",
         "STATIC_PIM": "#ED8936",
         "ROOFLINE_OI": "#3182CE",
-        "DYNAMIC_ANALYTICAL": "#38A169"
+        "DYNAMIC_ANALYTICAL": "#38A169",
+        "ORACLE": "#A0AEC0"
     }
 
     # 1. SPEEDUP COMPARISON
-    fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+    fig, ax = plt.subplots(figsize=(12, 5), dpi=300)
     x = np.arange(len(workloads))
-    width = 0.2
+    width = 0.16
     multiplier = 0
 
     for pol in policies:
         speedups = [data[wl][pol]["speedup"] for wl in workloads]
         offset = width * multiplier
         rects = ax.bar(x + offset, speedups, width, label=policy_labels[pol], color=colors[pol], alpha=0.9, edgecolor="black", linewidth=0.5)
-        ax.bar_label(rects, padding=3, fmt="%.2fx", fontsize=8)
+        ax.bar_label(rects, padding=3, fmt="%.2fx", fontsize=6, rotation=90)
         multiplier += 1
 
-    ax.set_ylabel("Speedup vs Baseline Host (x)", fontweight="bold")
+    ax.set_ylabel("Speedup vs Baseline Host (x, log scale)", fontweight="bold")
+    ax.set_yscale("log")
     ax.set_title("Execution Speedup: Host Baseline vs Static PIM vs MemCentric Dynamic", fontsize=12, fontweight="bold", pad=12)
-    ax.set_xticks(x + width * 1.5)
+    ax.set_xticks(x + width * 2)
     ax.set_xticklabels(workloads, rotation=15, ha="right", fontweight="bold")
     ax.axhline(1.0, color="gray", linestyle="--", linewidth=0.8)
     ax.legend(loc="upper left", frameon=True)
@@ -71,7 +74,7 @@ def generate_all_plots(results_path: str = None, output_dir: str = None):
     print(f"Generated: {p1}")
 
     # 2. DATA MOVEMENT REDUCTION
-    fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+    fig, ax = plt.subplots(figsize=(12, 5), dpi=300)
     multiplier = 0
     for pol in policies:
         data_kb = [data[wl][pol]["data_moved_kb"] for wl in workloads]
@@ -82,7 +85,7 @@ def generate_all_plots(results_path: str = None, output_dir: str = None):
     ax.set_ylabel("Data Moved Over Interconnect (KB)", fontweight="bold")
     ax.set_yscale("log")
     ax.set_title("Interconnect Data Movement Volume (Lower is Better - Log Scale)", fontsize=12, fontweight="bold", pad=12)
-    ax.set_xticks(x + width * 1.5)
+    ax.set_xticks(x + width * 2)
     ax.set_xticklabels(workloads, rotation=15, ha="right", fontweight="bold")
     ax.legend(loc="upper right", frameon=True)
     plt.tight_layout()
@@ -145,6 +148,56 @@ def generate_all_plots(results_path: str = None, output_dir: str = None):
     fig.savefig(p4)
     plt.close(fig)
     print(f"Generated: {p4}")
+
+    # 5. DECISION-OVERHEAD FEASIBILITY STUDY
+    study_path = os.path.join(os.path.dirname(results_path), "overhead_study.json")
+    if os.path.exists(study_path):
+        with open(study_path, "r") as f:
+            study = json.load(f)
+        plot_overhead_study(study, output_dir)
+
+
+def plot_overhead_study(study, output_dir):
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5), dpi=300)
+
+    sweep = study["sample_rate_sweep"]
+    rates = [r["sample_rate"] for r in sweep]
+    ax1.plot(rates, [r["oracle_efficiency_pct"] for r in sweep], marker="o", color="#38A169",
+             linewidth=2.2, label="Performance vs oracle (%)")
+    ax1.set_xscale("log")
+    ax1.set_ylim(90, 100.5)
+    ax1.set_xlabel("Profiler sample rate (fraction of address stream)", fontweight="bold")
+    ax1.set_ylabel("Performance vs oracle (%)", fontweight="bold", color="#38A169")
+    ax1b = ax1.twinx()
+    ax1b.plot(rates, [r["overhead_pct"] for r in sweep], marker="s", color="#E53E3E",
+              linewidth=2.2, linestyle="--", label="Decision overhead (% of runtime)")
+    ax1b.set_ylabel("Decision overhead (% of runtime)", fontweight="bold", color="#E53E3E")
+    for r in sweep:
+        ax1.annotate(f"{r['oracle_agreement']}/{r['tasks']}", (r["sample_rate"], r["oracle_efficiency_pct"]),
+                     textcoords="offset points", xytext=(0, 7), ha="center", fontsize=7)
+    ax1.set_title("Sampling: overhead vs decision quality\n(labels = phases matching oracle)",
+                  fontsize=11, fontweight="bold")
+
+    cost = study["profiling_cost_sweep"]
+    cps = [r["cycles_per_sample"] for r in cost]
+    host = study["host_cycles"]
+    ax2.plot(cps, [r["speedup"] for r in cost], marker="o", color="#38A169", linewidth=2.2,
+             label="MemCentric dynamic (full-trace profiling)")
+    ax2.axhline(host / study["best_static_or_roofline_cycles"], color="#3182CE", linestyle="--",
+                label="Best of static / roofline")
+    ax2.axhline(host / study["oracle_cycles"], color="#A0AEC0", linestyle=":", label="Oracle (zero overhead)")
+    ax2.axhline(1.0, color="#4A5568", linewidth=0.8, label="Host baseline")
+    ax2.set_xscale("log")
+    ax2.set_xlabel("Profiling cost (cycles per sampled access)", fontweight="bold")
+    ax2.set_ylabel("Speedup vs host (x)", fontweight="bold")
+    ax2.set_title("Break-even: how costly can decisions get?", fontsize=11, fontweight="bold")
+    ax2.legend(loc="lower left", fontsize=8, frameon=True)
+
+    plt.tight_layout()
+    p5 = os.path.join(output_dir, "overhead_study.png")
+    fig.savefig(p5)
+    plt.close(fig)
+    print(f"Generated: {p5}")
 
 
 if __name__ == "__main__":

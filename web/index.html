@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div class="app-container">
@@ -38,7 +38,8 @@
         <div class="control-group">
           <label for="workload-select">Workload Benchmark</label>
           <select id="workload-select">
-            <option value="Heterogeneous Pipeline" selected>Heterogeneous Pipeline (Multi-Stage)</option>
+            <option value="Mixed-Dataset Session" selected>Mixed-Dataset Session (Reusable + Streaming + Random, Congested Bus)</option>
+            <option value="Heterogeneous Pipeline">Heterogeneous Pipeline (Multi-Stage)</option>
             <option value="High-Reuse (GEMM)">High-Reuse (Dense GEMM Matrix Multiply)</option>
             <option value="Streaming (Vector Sum)">Streaming (Vector Addition & Reduction)</option>
             <option value="Streaming (DB Scan)">Streaming (Database Predicate Filter Scan)</option>
@@ -55,6 +56,7 @@
             <option value="ADAPTIVE_CONGESTION">ADAPTIVE_CONGESTION (Interconnect Queue Aware)</option>
             <option value="STATIC_PIM">STATIC_PIM (Always Near-Memory)</option>
             <option value="STATIC_HOST">STATIC_HOST (Baseline Conventional CPU)</option>
+            <option value="ORACLE">ORACLE (Zero-Overhead Upper Bound)</option>
           </select>
         </div>
 
@@ -205,6 +207,7 @@
     </div>
   </div>
 
+  <script src="data.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

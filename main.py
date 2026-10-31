@@ -21,7 +21,7 @@ import webbrowser
 
 from memcentric.system import MemoryCentricSystem
 from memcentric.runtime.policy import PlacementPolicy
-from memcentric.workloads.pipeline import generate_heterogeneous_pipeline
+from memcentric.workloads.mixed import generate_mixed_dataset_session
 from benchmarks.run_experiments import run_all_experiments
 from visualizer.plots import generate_all_plots
 
@@ -30,16 +30,16 @@ def run_pipeline_demo():
     print("=" * 80)
     print(" MEMCENTRIC-SIM: MEMORY-CENTRIC COMPUTING ARCHITECTURE DEMO")
     print("=" * 80)
-    print("Evaluating Dynamic Heterogeneous Pipeline (Analytics & ML Workload)...")
+    print("Evaluating Mixed-Dataset Session (reusable + streaming + random data, one system)...")
 
     # 1. Baseline Host Run
     host_system = MemoryCentricSystem(policy=PlacementPolicy.STATIC_HOST)
-    host_tasks = generate_heterogeneous_pipeline()
+    host_tasks = generate_mixed_dataset_session()
     host_res = host_system.run_workload(host_tasks)
 
     # 2. Dynamic MemCentric Run
     dynamic_system = MemoryCentricSystem(policy=PlacementPolicy.DYNAMIC_ANALYTICAL)
-    dyn_tasks = generate_heterogeneous_pipeline()
+    dyn_tasks = generate_mixed_dataset_session()
     dyn_res = dynamic_system.run_workload(dyn_tasks)
 
     speedup = host_res.total_cycles / max(1, dyn_res.total_cycles)
@@ -72,6 +72,9 @@ def run_pipeline_demo():
         target_color = "PIM (Near-Memory)" if t.target == "PIM" else "HOST (Vector CPU)"
         print(f"  * {t.task_name:<32} -> Placed on {target_color:<18} (Data Moved: {t.bytes_transferred / 1024.0:.2f} KB, Cycles: {t.elapsed_cycles:,})")
         print(f"    Reason: {t.decision_reason}")
+    print(f"\nDecision overhead: {dyn_res.decisions_summary['total_overhead_cycles']:,} cycles "
+          f"({100.0 * dyn_res.decisions_summary['total_overhead_cycles'] / dyn_res.total_cycles:.2f}% of runtime), "
+          f"{dyn_res.events_processed} simulation events")
     print("\n" + "=" * 80)
 
 
@@ -84,6 +87,7 @@ def run_tests():
         "tests/test_interconnect.py",
         "tests/test_runtime.py",
         "tests/test_system.py",
+        "tests/test_placement_dynamics.py",
     ]
     all_passed = True
     for t in test_files:

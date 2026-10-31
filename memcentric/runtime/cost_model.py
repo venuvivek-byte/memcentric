@@ -3,10 +3,19 @@ MemCentric-Sim: Analytical Cost & Performance Model
 ====================================================
 Predicts execution latency and energy for Host execution vs. PIM offload.
 Used by the dynamic runtime decision engine to make placement choices.
+
+The model is parameterised from the same hardware configuration the simulator
+uses (see `from_hardware`), so its predictions track the simulated machine:
+  - every host cache miss holds the link for a request and a 64 B response,
+    and pays a DRAM row access in between;
+  - data already resident in the host caches costs no interconnect traffic;
+  - offloading data that is dirty in the host caches first requires a
+    coherence write-back of each dirty line;
+  - PIM DRAM time is set by the busiest bank (the data's physical location);
+  - traffic already queued on the link delays whichever path uses it first.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Tuple
 from memcentric.runtime.profiler import KernelProfile
 
 
@@ -20,18 +29,21 @@ class CostEstimate:
     pim_edp: float
     recommended_placement: str # "HOST" or "PIM"
     confidence_margin: float
+    host_breakdown: dict = None
+    pim_breakdown: dict = None
 
 
 class AnalyticalCostModel:
     """
-    Mathematical cost model formulating:
-      T_host = T_compute_host + T_transfer_in + T_dram_read + T_transfer_out
-      T_pim  = T_compute_pim  + T_pim_local_dram + T_transfer_reduction
+    T_host = T_compute_host + T_cache + N_miss * (t_req + t_dram + t_resp) + T_backlog
+    T_pim  = T_flush + T_bank(max) + T_compute_pim + T_result + T_residual_backlog
     """
     def __init__(
         self,
         host_freq_ghz: float = 3.2,
-        host_ipc_vector: float = 64.0,  # 4 cores * 2.0 IPC * 8 lanes
+        host_cores: int = 4,
+        host_ipc: float = 2.0,
+        host_vector_lanes: int = 8,
         host_power_watts: float = 65.0,
         bus_bw_gbps: float = 64.0,
         bus_latency_cycles: int = 40,
@@ -39,13 +51,18 @@ class AnalyticalCostModel:
         pim_freq_ghz: float = 1.0,
         pim_pes: int = 8,
         pim_simd: int = 2,
+        pim_ipc: float = 1.0,
         pim_power_watts: float = 6.4,   # 8 PEs * 0.8W
-        dram_latency_cycles: int = 45,
+        dram_access_cycles: int = 46,   # row conflict: tRP + tRCD + tCAS + tBURST
+        dram_row_hit_cycles: int = 18,  # open-row hit: tCAS + tBURST
         dram_energy_per_line_pj: float = 1500.0, # 1.5 nJ
+        cache_path_cycles: int = 58,    # L1 + L2 + L3 lookup before a miss
         l3_capacity_bytes: int = 16 * 1024 * 1024
     ):
         self.host_freq_ghz = host_freq_ghz
-        self.host_ipc_vector = host_ipc_vector
+        self.host_cores = host_cores
+        self.host_ipc = host_ipc
+        self.host_vector_lanes = host_vector_lanes
         self.host_power_watts = host_power_watts
         self.bus_bw_gbps = bus_bw_gbps
         self.bus_latency_cycles = bus_latency_cycles
@@ -53,96 +70,120 @@ class AnalyticalCostModel:
         self.pim_freq_ghz = pim_freq_ghz
         self.pim_pes = pim_pes
         self.pim_simd = pim_simd
+        self.pim_ipc = pim_ipc
         self.pim_power_watts = pim_power_watts
-        self.dram_latency_cycles = dram_latency_cycles
+        self.dram_access_cycles = dram_access_cycles
+        self.dram_row_hit_cycles = dram_row_hit_cycles
         self.dram_energy_per_line_pj = dram_energy_per_line_pj
+        self.cache_path_cycles = cache_path_cycles
         self.l3_capacity_bytes = l3_capacity_bytes
 
         # Normalized bus bytes per host cycle
         self.bus_bytes_per_cycle = self.bus_bw_gbps / self.host_freq_ghz
 
+    @classmethod
+    def from_hardware(cls, host_cfg, pim_cfg, interconnect, memory, cache) -> "AnalyticalCostModel":
+        """Builds a model whose parameters match the simulated components."""
+        return cls(
+            host_freq_ghz=host_cfg.frequency_ghz,
+            host_cores=host_cfg.num_cores,
+            host_ipc=host_cfg.ipc,
+            host_vector_lanes=host_cfg.vector_width_lanes,
+            host_power_watts=host_cfg.active_power_watts,
+            bus_bw_gbps=interconnect.bandwidth_gbps,
+            bus_latency_cycles=interconnect.base_latency_cycles,
+            bus_energy_per_byte_pj=interconnect.energy_per_byte_pj,
+            pim_freq_ghz=pim_cfg.frequency_ghz,
+            pim_pes=pim_cfg.num_pes,
+            pim_simd=pim_cfg.simd_width,
+            pim_ipc=pim_cfg.ipc,
+            pim_power_watts=pim_cfg.num_pes * pim_cfg.active_power_per_pe_watts,
+            dram_access_cycles=memory.row_conflict_latency,
+            dram_row_hit_cycles=memory.timing.tCAS + memory.timing.tBURST,
+            cache_path_cycles=cache.hit_path_latency,
+            l3_capacity_bytes=cache.l3.size_bytes
+        )
+
+    def _dram_cycles(self, row_hit_fraction: float) -> float:
+        """Average DRAM access latency given the profiled open-row hit rate."""
+        h = row_hit_fraction
+        return h * self.dram_row_hit_cycles + (1.0 - h) * self.dram_access_cycles
+
+    def _link_cycles(self, size_bytes: int) -> int:
+        return self.bus_latency_cycles + max(1, int(size_bytes / self.bus_bytes_per_cycle))
+
     def estimate(self, profile: KernelProfile, current_bus_queue_cycles: int = 0) -> CostEstimate:
         """
         Estimates runtime latency and energy for Host vs PIM.
         """
+        backlog = max(0, current_bus_queue_cycles)
+
         # ==================== 1. HOST ESTIMATION ====================
-        # Compute cycles
-        host_compute_cycles = max(1, int(profile.num_ops / self.host_ipc_vector))
+        lanes = self.host_vector_lanes if profile.vectorizable else 1
+        host_compute_cycles = max(1, int(profile.num_ops / (self.host_cores * self.host_ipc * lanes)))
 
-        # Cache behavior estimation
-        # If input working set fits in L3 and reuse is high, DRAM traffic is small
-        if profile.input_bytes <= self.l3_capacity_bytes and profile.temporal_reuse_factor > 2.0:
-            effective_lines_fetched = profile.unique_lines
+        cold = 1.0 - profile.resident_fraction
+        if profile.input_bytes <= self.l3_capacity_bytes:
+            misses = profile.unique_lines * cold
         else:
-            # Thrashing or streaming
-            effective_lines_fetched = int(profile.unique_lines * min(2.0, profile.temporal_reuse_factor))
+            # Working set overflows L3: reuse cannot be captured
+            misses = profile.total_accesses * cold
 
-        data_to_fetch_bytes = effective_lines_fetched * 64
+        out_lines = profile.output_bytes // 64
+        if profile.output_bytes > 0:
+            out_lines = max(1, out_lines)
+        misses += out_lines * (1.0 - profile.output_resident_fraction)
 
-        # Bus transfer time for host
-        tx_in_cycles = (
-            self.bus_latency_cycles + 
-            current_bus_queue_cycles + 
-            int(data_to_fetch_bytes / self.bus_bytes_per_cycle)
+        dram_cycles = self._dram_cycles(profile.host_row_hit_fraction)
+        per_miss = self._link_cycles(8) + dram_cycles + self._link_cycles(64)
+        host_mem_cycles = self.cache_path_cycles + int(misses * per_miss)
+        # Misses issue after compute, so backlog drains while the host computes
+        host_queue_cycles = (
+            max(0, backlog - host_compute_cycles - self.cache_path_cycles) if misses >= 1 else 0
         )
-        tx_out_cycles = (
-            self.bus_latency_cycles + 
-            int(profile.output_bytes / self.bus_bytes_per_cycle)
-        )
+        total_host_cycles = host_compute_cycles + host_mem_cycles + host_queue_cycles
 
-        # Memory stall time (interleaved across DRAM channels/banks)
-        parallel_banks = 32
-        dram_cycles = int(effective_lines_fetched * self.dram_latency_cycles / parallel_banks)
-
-        # Overlapping compute and memory (imperfect overlap factor ~0.7)
-        total_host_cycles = max(host_compute_cycles, tx_in_cycles + dram_cycles) + int(0.3 * min(host_compute_cycles, tx_in_cycles)) + tx_out_cycles
-
-        # Host Energy
         time_host_sec = total_host_cycles / (self.host_freq_ghz * 1e9)
-        host_compute_energy_pj = self.host_power_watts * time_host_sec * 1e12
-        host_bus_energy_pj = (data_to_fetch_bytes + profile.output_bytes) * self.bus_energy_per_byte_pj
-        host_dram_energy_pj = effective_lines_fetched * self.dram_energy_per_line_pj
-        total_host_energy_uj = (host_compute_energy_pj + host_bus_energy_pj + host_dram_energy_pj) / 1e6
+        host_bus_bytes = misses * (8 + 64)
+        host_energy_pj = (
+            self.host_power_watts * (host_compute_cycles / (self.host_freq_ghz * 1e9)) * 1e12
+            + host_bus_bytes * self.bus_energy_per_byte_pj
+            + misses * self.dram_energy_per_line_pj
+        )
+        total_host_energy_uj = host_energy_pj / 1e6
         host_edp = (total_host_energy_uj / 1e6) * time_host_sec
 
         # ==================== 2. PIM ESTIMATION ====================
-        # PIM compute throughput
+        dirty_lines = profile.unique_lines * profile.dirty_fraction
+        flush_cycles = int(dirty_lines * self._link_cycles(64))
+        if dirty_lines >= 1:
+            flush_cycles += backlog  # write-backs queue behind traffic already on the link
+
+        pim_dram_cycles = int(profile.max_bank_accesses * self._dram_cycles(profile.pim_row_hit_fraction))
+
         freq_ratio = self.host_freq_ghz / self.pim_freq_ghz
-        pim_throughput = self.pim_pes * self.pim_simd
+        pim_throughput = self.pim_pes * self.pim_simd * self.pim_ipc
         pim_compute_cycles = max(1, int((profile.num_ops / pim_throughput) * freq_ratio))
 
-        # Local DRAM accesses (direct wide TSV/bus: ~4x faster than host interconnect)
-        pim_dram_cycles = int(profile.unique_lines * 14 / parallel_banks)
+        pim_tx_out_cycles = self._link_cycles(profile.output_bytes) if profile.output_bytes > 0 else 0
+        busy = flush_cycles + pim_dram_cycles + pim_compute_cycles
+        residual = max(0, backlog - busy) if (profile.output_bytes > 0 and dirty_lines < 1) else 0
 
-        # Interconnect transfer for PIM: ONLY the final output/reduction
-        pim_tx_out_cycles = (
-            self.bus_latency_cycles + 
-            int(profile.output_bytes / self.bus_bytes_per_cycle)
-            if profile.output_bytes > 0 else 0
-        )
+        total_pim_cycles = busy + pim_tx_out_cycles + residual
 
-        total_pim_cycles = pim_compute_cycles + pim_dram_cycles + pim_tx_out_cycles
-
-        # PIM Energy
         time_pim_sec = total_pim_cycles / (self.host_freq_ghz * 1e9)
-        pim_compute_energy_pj = self.pim_power_watts * time_pim_sec * 1e12
-        pim_bus_energy_pj = profile.output_bytes * self.bus_energy_per_byte_pj
-        pim_dram_energy_pj = profile.unique_lines * (self.dram_energy_per_line_pj * 0.7) # local access saves I/O buffer energy
-        total_pim_energy_uj = (pim_compute_energy_pj + pim_bus_energy_pj + pim_dram_energy_pj) / 1e6
+        pim_energy_pj = (
+            self.pim_power_watts * (pim_compute_cycles / (self.host_freq_ghz * 1e9)) * 1e12
+            + (profile.output_bytes + dirty_lines * 64) * self.bus_energy_per_byte_pj
+            + profile.unique_lines * self.dram_energy_per_line_pj * 0.7  # local access skips I/O buffers
+        )
+        total_pim_energy_uj = pim_energy_pj / 1e6
         pim_edp = (total_pim_energy_uj / 1e6) * time_pim_sec
 
-        # Recommended placement based on latency and operational intensity:
-        # High Operational Intensity (>2.0) with high reuse -> Host CPU vector/cache advantage
-        # Low Operational Intensity (<2.0) or latency-bound random access -> Near-Memory PIM
+        # Latency objective: run where the task finishes first; ties stay on host.
         if total_pim_cycles < total_host_cycles:
             recommended = "PIM"
             margin = (total_host_cycles - total_pim_cycles) / max(1, total_host_cycles)
-        elif profile.operational_intensity >= 2.0 or total_host_cycles <= total_pim_cycles:
-            recommended = "HOST"
-            margin = (total_pim_cycles - total_host_cycles) / max(1, total_pim_cycles)
-        elif pim_edp < (0.6 * host_edp):
-            recommended = "PIM"
-            margin = (host_edp - pim_edp) / max(1e-12, host_edp)
         else:
             recommended = "HOST"
             margin = (total_pim_cycles - total_host_cycles) / max(1, total_pim_cycles)
@@ -155,5 +196,16 @@ class AnalyticalCostModel:
             pim_energy_uj=total_pim_energy_uj,
             pim_edp=pim_edp,
             recommended_placement=recommended,
-            confidence_margin=margin
+            confidence_margin=margin,
+            host_breakdown={
+                "compute": host_compute_cycles,
+                "memory": host_mem_cycles,
+                "bus_queue": host_queue_cycles,
+            },
+            pim_breakdown={
+                "coherence_flush": flush_cycles,
+                "bank": pim_dram_cycles,
+                "compute": pim_compute_cycles,
+                "result": pim_tx_out_cycles + residual,
+            }
         )

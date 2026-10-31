@@ -1,0 +1,214 @@
+{
+  "workload": "Mixed-Dataset Session",
+  "oracle_cycles": 958040,
+  "host_cycles": 2035653,
+  "best_static_or_roofline_cycles": 1185084,
+  "sample_rate_sweep": [
+    {
+      "sample_rate": 1.0,
+      "cycles": 987833,
+      "speedup": 2.061,
+      "oracle_efficiency_pct": 96.98,
+      "overhead_cycles": 29793,
+      "overhead_pct": 3.016,
+      "oracle_agreement": 8,
+      "tasks": 8
+    },
+    {
+      "sample_rate": 0.5,
+      "cycles": 974116,
+      "speedup": 2.09,
+      "oracle_efficiency_pct": 98.35,
+      "overhead_cycles": 16076,
+      "overhead_pct": 1.65,
+      "oracle_agreement": 8,
+      "tasks": 8
+    },
+    {
+      "sample_rate": 0.25,
+      "cycles": 966869,
+      "speedup": 2.105,
+      "oracle_efficiency_pct": 99.09,
+      "overhead_cycles": 8829,
+      "overhead_pct": 0.913,
+      "oracle_agreement": 8,
+      "tasks": 8
+    },
+    {
+      "sample_rate": 0.1,
+      "cycles": 962352,
+      "speedup": 2.115,
+      "oracle_efficiency_pct": 99.55,
+      "overhead_cycles": 4312,
+      "overhead_pct": 0.448,
+      "oracle_agreement": 8,
+      "tasks": 8
+    },
+    {
+      "sample_rate": 0.05,
+      "cycles": 989708,
+      "speedup": 2.057,
+      "oracle_efficiency_pct": 96.8,
+      "overhead_cycles": 2770,
+      "overhead_pct": 0.28,
+      "oracle_agreement": 7,
+      "tasks": 8
+    },
+    {
+      "sample_rate": 0.02,
+      "cycles": 981922,
+      "speedup": 2.073,
+      "oracle_efficiency_pct": 97.57,
+      "overhead_cycles": 1816,
+      "overhead_pct": 0.185,
+      "oracle_agreement": 7,
+      "tasks": 8
+    },
+    {
+      "sample_rate": 0.01,
+      "cycles": 981593,
+      "speedup": 2.074,
+      "oracle_efficiency_pct": 97.6,
+      "overhead_cycles": 1487,
+      "overhead_pct": 0.151,
+      "oracle_agreement": 7,
+      "tasks": 8
+    },
+    {
+      "sample_rate": 0.005,
+      "cycles": 981420,
+      "speedup": 2.074,
+      "oracle_efficiency_pct": 97.62,
+      "overhead_cycles": 1314,
+      "overhead_pct": 0.134,
+      "oracle_agreement": 7,
+      "tasks": 8
+    }
+  ],
+  "profiling_cost_sweep": [
+    {
+      "cycles_per_sample": 0.5,
+      "cycles": 987833,
+      "speedup": 2.061,
+      "oracle_efficiency_pct": 96.98,
+      "overhead_cycles": 29793,
+      "overhead_pct": 3.016,
+      "oracle_agreement": 8,
+      "tasks": 8,
+      "beats_best_static": true
+    },
+    {
+      "cycles_per_sample": 2,
+      "cycles": 1075766,
+      "speedup": 1.892,
+      "oracle_efficiency_pct": 89.06,
+      "overhead_cycles": 117726,
+      "overhead_pct": 10.943,
+      "oracle_agreement": 8,
+      "tasks": 8,
+      "beats_best_static": true
+    },
+    {
+      "cycles_per_sample": 8,
+      "cycles": 1427504,
+      "speedup": 1.426,
+      "oracle_efficiency_pct": 67.11,
+      "overhead_cycles": 469464,
+      "overhead_pct": 32.887,
+      "oracle_agreement": 8,
+      "tasks": 8,
+      "beats_best_static": false
+    },
+    {
+      "cycles_per_sample": 32,
+      "cycles": 2834456,
+      "speedup": 0.718,
+      "oracle_efficiency_pct": 33.8,
+      "overhead_cycles": 1876416,
+      "overhead_pct": 66.2,
+      "oracle_agreement": 8,
+      "tasks": 8,
+      "beats_best_static": false
+    },
+    {
+      "cycles_per_sample": 64,
+      "cycles": 4710392,
+      "speedup": 0.432,
+      "oracle_efficiency_pct": 20.34,
+      "overhead_cycles": 3752352,
+      "overhead_pct": 79.661,
+      "oracle_agreement": 8,
+      "tasks": 8,
+      "beats_best_static": false
+    },
+    {
+      "cycles_per_sample": 128,
+      "cycles": 8462264,
+      "speedup": 0.241,
+      "oracle_efficiency_pct": 11.32,
+      "overhead_cycles": 7504224,
+      "overhead_pct": 88.679,
+      "oracle_agreement": 8,
+      "tasks": 8,
+      "beats_best_static": false
+    }
+  ],
+  "prediction_error": [
+    {
+      "task": "S1_Ingest_Transform",
+      "target": "HOST",
+      "predicted": 664000,
+      "actual": 586810,
+      "error_pct": 13.2
+    },
+    {
+      "task": "S2_HotBuffer_Aggregate",
+      "target": "HOST",
+      "predicted": 1212,
+      "actual": 1230,
+      "error_pct": -1.5
+    },
+    {
+      "task": "S3_ColdTable_Scan",
+      "target": "PIM",
+      "predicted": 15441,
+      "actual": 14941,
+      "error_pct": 3.3
+    },
+    {
+      "task": "S4_Embedding_Gather",
+      "target": "PIM",
+      "predicted": 6923,
+      "actual": 5285,
+      "error_pct": 31.0
+    },
+    {
+      "task": "S5_Model_GEMM",
+      "target": "HOST",
+      "predicted": 64118,
+      "actual": 73272,
+      "error_pct": -12.5
+    },
+    {
+      "task": "S6_FeatureCross_QuietBus",
+      "target": "HOST",
+      "predicted": 123254,
+      "actual": 122946,
+      "error_pct": 0.3
+    },
+    {
+      "task": "S7_FeatureCross_BusyBus",
+      "target": "PIM",
+      "predicted": 145752,
+      "actual": 145012,
+      "error_pct": 0.5
+    },
+    {
+      "task": "S8_Graph_Frontier",
+      "target": "PIM",
+      "predicted": 9924,
+      "actual": 8544,
+      "error_pct": 16.2
+    }
+  ]
+}

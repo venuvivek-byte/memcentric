@@ -7,6 +7,7 @@ dirty writebacks, tag lookup, and hit/miss latency modeling.
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
+import copy
 import math
 
 
@@ -142,6 +143,43 @@ class CacheLevel:
 
         return False, evicted_dirty, evicted_addr
 
+    def __deepcopy__(self, memo):
+        # Fast path for trial executions: rebuild lines directly instead of
+        # letting copy.deepcopy walk ~270k dataclass instances.
+        clone = copy.copy(self)
+        clone.sets = [
+            [CacheLine(l.tag, l.valid, l.dirty, l.last_access_cycle) for l in s]
+            for s in self.sets
+        ]
+        clone.stats = copy.copy(self.stats)
+        memo[id(self)] = clone
+        return clone
+
+    def _find_line(self, addr: int) -> Optional[CacheLine]:
+        tag, index, _ = self._parse_address(addr)
+        for line in self.sets[index]:
+            if line.valid and line.tag == tag:
+                return line
+        return None
+
+    def probe(self, addr: int) -> Tuple[bool, bool]:
+        """Side-effect-free lookup. Returns (resident, dirty); no LRU or stats update."""
+        line = self._find_line(addr)
+        if line is None:
+            return False, False
+        return True, line.dirty
+
+    def invalidate(self, addr: int) -> bool:
+        """Invalidates the line holding addr. Returns True if it was dirty."""
+        line = self._find_line(addr)
+        if line is None:
+            return False
+        was_dirty = line.dirty
+        line.valid = False
+        line.dirty = False
+        line.tag = -1
+        return was_dirty
+
     def flush(self) -> int:
         """Flushes all lines and returns count of dirty lines written back."""
         dirty_count = 0
@@ -238,6 +276,36 @@ class CacheHierarchy:
 
         # Full Miss - must fetch from main memory over bus
         return cumulative_latency, int(cumulative_energy), True
+
+    def probe_line(self, addr: int) -> Tuple[bool, bool]:
+        """
+        Side-effect-free residency check across all levels.
+        Returns (resident_anywhere, dirty_anywhere).
+        """
+        resident = False
+        dirty = False
+        for lvl in self.levels:
+            r, d = lvl.probe(addr)
+            resident = resident or r
+            dirty = dirty or d
+        return resident, dirty
+
+    def invalidate_line(self, addr: int) -> bool:
+        """
+        Removes a line from every level (coherence invalidation before a
+        near-memory kernel touches it). Returns True if any copy was dirty
+        and must be written back to DRAM.
+        """
+        dirty = False
+        for lvl in self.levels:
+            if lvl.invalidate(addr):
+                dirty = True
+        return dirty
+
+    @property
+    def hit_path_latency(self) -> int:
+        """Lookup latency through every level before a miss reaches memory."""
+        return sum(lvl.hit_latency_cycles for lvl in self.levels)
 
     def get_summary(self) -> Dict[str, Dict[str, float]]:
         return {

@@ -56,9 +56,31 @@ class Interconnect:
         self.total_transfer_energy_pj: float = 0.0
         self.total_queuing_delay_cycles: int = 0
 
-    def transmit(self, size_bytes: int, current_cycle: int) -> Tuple[int, int]:
+        # Traffic from other agents (DMA engines, NICs) sharing the link.
+        # It occupies the link but is not attributed to the simulated workload.
+        self.background_bytes_transferred: int = 0
+        self.background_packets_transferred: int = 0
+
+    @property
+    def request_occupancy_cycles(self) -> int:
+        """Link cycles held by one 8-byte miss request."""
+        return self.base_latency_cycles + max(1, int(8 / self.bytes_per_cycle))
+
+    @property
+    def line_occupancy_cycles(self) -> int:
+        """Link cycles held by one 64-byte cache-line transfer."""
+        return self.base_latency_cycles + max(1, int(64 / self.bytes_per_cycle))
+
+    def queue_backlog(self, current_cycle: int) -> int:
+        """Cycles a request issued now would wait before the link is free."""
+        return max(0, self.busy_until_cycle - current_cycle)
+
+    def transmit(self, size_bytes: int, current_cycle: int, account: bool = True) -> Tuple[int, int]:
         """
         Transmits data over the bus.
+        Link reservations are granted in issue order (FIFO).
+        account=False marks background traffic: it occupies the link but is
+        kept out of the workload's byte, packet and energy statistics.
         Returns:
             (completion_cycle, total_latency_cycles)
         """
@@ -72,6 +94,11 @@ class Interconnect:
 
         self.busy_until_cycle = finish_cycle
         total_latency = finish_cycle - current_cycle
+
+        if not account:
+            self.background_bytes_transferred += size_bytes
+            self.background_packets_transferred += 1
+            return finish_cycle, total_latency
 
         # Update stats
         self.total_bytes_transferred += size_bytes
@@ -96,6 +123,8 @@ class Interconnect:
         self.total_packets_transferred = 0
         self.total_transfer_energy_pj = 0.0
         self.total_queuing_delay_cycles = 0
+        self.background_bytes_transferred = 0
+        self.background_packets_transferred = 0
 
     def get_stats(self) -> Dict[str, float]:
         return {
@@ -106,4 +135,5 @@ class Interconnect:
                 round(self.total_queuing_delay_cycles / self.total_packets_transferred, 2)
                 if self.total_packets_transferred > 0 else 0.0
             ),
+            "background_bytes_mb": round(self.background_bytes_transferred / (1024 * 1024), 3),
         }

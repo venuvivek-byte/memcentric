@@ -100,6 +100,18 @@ class SimulationEngine:
             event.callback(self, event.payload)
         return True
 
+    def stop(self):
+        """Stops the run loop after the current event's callback returns."""
+        self.is_running = False
+
+    def clear_pending(self):
+        """Discards all events that have not been executed yet."""
+        self._event_queue.clear()
+
+    @property
+    def pending_events(self) -> int:
+        return len(self._event_queue)
+
     def reset(self):
         """Resets engine to initial cycle."""
         self.current_cycle = 0

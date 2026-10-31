@@ -87,6 +87,15 @@ class MemorySubsystem:
         row_id = addr // self.row_size_bytes
         return channel_id, bank_id, row_id
 
+    def bank_of(self, addr: int) -> int:
+        """Physical bank that holds addr (the data's location in memory)."""
+        return self._map_address(addr)[1]
+
+    @property
+    def row_conflict_latency(self) -> int:
+        t = self.timing
+        return t.tRP + t.tRCD + t.tCAS + t.tBURST
+
     def access(self, addr: int, is_write: bool, current_cycle: int) -> Tuple[int, int, float]:
         """
         Simulates access to DRAM bank.
